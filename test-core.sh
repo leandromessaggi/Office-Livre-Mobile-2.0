@@ -6,4 +6,6 @@ java -cp build/coretest CoreTests
 java -cp build/coretest V2Tests samples
 java -cp build/coretest ParseAndroid \
     app/src/main/java/com/officelivre/mobile/MainActivity.java \
-    app/src/main/java/com/officelivre/mobile/PdfPageView.java
+    app/src/main/java/com/officelivre/mobile/PdfPageView.java \
+    app/src/main/java/com/officelivre/mobile/DocZoomEditText.java \
+    app/src/main/java/com/officelivre/mobile/PdfOutlineReader.java

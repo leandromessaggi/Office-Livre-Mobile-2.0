@@ -78,3 +78,11 @@ Utiliza Storage Access Framework (`ACTION_OPEN_DOCUMENT` e `ACTION_CREATE_DOCUME
 - [Android PdfDocument](https://developer.android.com/reference/android/graphics/pdf/PdfDocument)
 
 A implementação foi escrita para este projeto usando essas especificações públicas; não contém código copiado de bibliotecas comerciais nem distribui dependências licenciadas de terceiros.
+
+
+## Atualização 2.1 — Zoom e sumário
+
+- Editor DOCX: zoom de 60% a 240%, por botões ou pinça. O zoom não altera o tamanho de fonte salvo.
+- PDF: zoom de 75% a 350%, com botões ou pinça, e rolagem bidirecional.
+- PDF: botão **Índice / sumário** para navegar pelos bookmarks internos do arquivo; PDFs sem bookmarks permitem navegar pelo número da página.
+- O zoom e as anotações são recursos de visualização; ao exportar o PDF anotado, seu conteúdo é rasterizado.
