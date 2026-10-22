@@ -19,16 +19,36 @@ public final class PdfPageView extends View {
         public Stroke(boolean highlighted){this.highlighted=highlighted;}
     }
     public interface OnPdfTap {void onTap(float x,float y);}
+    public interface OnZoomGesture {
+        void onScale(float factor);
+        void onEnd();
+    }
     private Bitmap bitmap;
     private List<Note> notes=Collections.emptyList();
     private List<Stroke> strokes=Collections.emptyList();
     private OnPdfTap onPdfTap;
     private Tool tool=Tool.TEXT;
+    private final ScaleGestureDetector pinchDetector;
+    private OnZoomGesture zoomGesture;
+    private boolean pinching;
     private Stroke drawing;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     private final RectF pageRect=new RectF();
 
-    public PdfPageView(Context ctx){super(ctx);setBackgroundColor(Color.rgb(230,235,242));}
+    public PdfPageView(Context ctx){
+        super(ctx);setBackgroundColor(Color.rgb(230,235,242));
+        pinchDetector=new ScaleGestureDetector(ctx,new ScaleGestureDetector.SimpleOnScaleGestureListener(){
+            @Override public boolean onScaleBegin(ScaleGestureDetector detector){pinching=true;return true;}
+            @Override public boolean onScale(ScaleGestureDetector detector){
+                if(zoomGesture!=null)zoomGesture.onScale(detector.getScaleFactor());
+                return true;
+            }
+            @Override public void onScaleEnd(ScaleGestureDetector detector){
+                if(zoomGesture!=null)zoomGesture.onEnd();
+            }
+        });
+    }
+    public void setOnZoomGesture(OnZoomGesture zoom){zoomGesture=zoom;}
     public void update(Bitmap next,List<Note> texts,List<Stroke> lines){
         if(bitmap!=null&&bitmap!=next&&!bitmap.isRecycled())bitmap.recycle();
         bitmap=next;notes=texts;strokes=lines;drawing=null;requestLayout();invalidate();
@@ -85,9 +105,17 @@ public final class PdfPageView extends View {
         p.setAlpha(255);p.setStyle(Paint.Style.FILL);
     }
     @Override public boolean onTouchEvent(MotionEvent event){
+        pinchDetector.onTouchEvent(event);
         measurePage();
         float x=event.getX(),y=event.getY();
         int kind=event.getActionMasked();
+        if(event.getPointerCount()>1 || kind==MotionEvent.ACTION_POINTER_DOWN ||
+                kind==MotionEvent.ACTION_POINTER_UP || pinching){
+            if(drawing!=null){strokes.remove(drawing);drawing=null;invalidate();}
+            if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);
+            if(kind==MotionEvent.ACTION_UP || kind==MotionEvent.ACTION_CANCEL)pinching=false;
+            return true;
+        }
         if(kind==MotionEvent.ACTION_DOWN){
             if(bitmap==null||!pageRect.contains(x,y))return false;
             if(tool!=Tool.TEXT){

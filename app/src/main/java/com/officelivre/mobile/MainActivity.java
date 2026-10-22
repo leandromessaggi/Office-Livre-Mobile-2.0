@@ -16,6 +16,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 
 import com.officelivre.mobile.core.OpenXml;
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
 import com.officelivre.mobile.core.SheetData;
 import com.officelivre.mobile.core.WorkbookData;
 import java.io.*;
@@ -31,7 +32,14 @@ public final class MainActivity extends Activity {
     private enum Mode { HOME, DOC, SHEET, PDF }
     private Mode mode=Mode.HOME;
     private LinearLayout main, frame;
-    private EditText docInput, formulaInput;
+    private DocZoomEditText docInput;
+    private EditText formulaInput;
+    private float docZoom=1f, pdfZoom=1f, docFontSp=17f;
+    private TextView docZoomLabel,pdfZoomLabel;
+    private HorizontalScrollView pdfHorizontal;
+    private ScrollView pdfVertical;
+    private final ArrayList<PdfOutlineReader.Bookmark> pdfBookmarks=new ArrayList<>();
+    private volatile boolean pdfIndexLoading=false;
     private WorkbookData book=new WorkbookData();
     private SheetData sheet=book.current();
     private String selectedCell="A1", filename="Novo documento";
@@ -54,6 +62,7 @@ public final class MainActivity extends Activity {
             getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
+        PDFBoxResourceLoader.init(getApplicationContext());
         renderHome();
         if(getIntent()!=null && Intent.ACTION_VIEW.equals(getIntent().getAction()) && getIntent().getData()!=null)
             openFile(getIntent().getData());
@@ -130,9 +139,9 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this);main.addView(scroll);
         LinearLayout content=vertical();scroll.addView(content);
         TextView welcome=label("O que você deseja criar?",23,true,INK);pad(welcome,18,22);content.addView(welcome);
-        card(content,"▤","Documento de texto","DOCX, TXT, títulos, tabelas, localização e PDF",()->renderDoc());
+        card(content,"▤","Documento de texto","DOCX, TXT, zoom, títulos, tabelas e PDF",()->renderDoc());
         card(content,"▦","Planilha de cálculos","XLSX, CSV, múltiplas abas e novas funções",()->renderSheet());
-        card(content,"▧","Visualizar e anotar PDF","Texto, caneta e marca-texto sobre páginas",()->renderPdf());
+        card(content,"▧","Visualizar e anotar PDF","Zoom, índice, texto, caneta e marca-texto",()->renderPdf());
         card(content,"＋","Abrir arquivo existente","Escolher documentos no armazenamento",this::chooseFile);
         TextView footer=label("Sem cadastro • Sem internet • Arquivos no seu aparelho",12,false,GRAY);
         pad(footer,20,25);content.addView(footer);
@@ -147,6 +156,12 @@ public final class MainActivity extends Activity {
         action("Salvar DOCX",actions,()->saveAs("docx"));
         action("Salvar TXT",actions,()->saveAs("txt"));
         action("Exportar PDF",actions,()->saveAs("docpdf"));
+        LinearLayout zoomRow=buttons(true);
+        zoomRow.addView(label("Zoom",13,true,GRAY));
+        action("−",zoomRow,()->setDocZoom(docZoom-0.2f));
+        docZoomLabel=label("100%",15,true,BLUE);pad(docZoomLabel,10,0);zoomRow.addView(docZoomLabel);
+        action("+",zoomRow,()->setDocZoom(docZoom+0.2f));
+        action("100%",zoomRow,()->setDocZoom(1f));
         LinearLayout formats=buttons(true);
         action("N",formats,()->styleSelection("b"));
         action("I",formats,()->styleSelection("i"));
@@ -161,14 +176,24 @@ public final class MainActivity extends Activity {
         ScrollView editorScroll=new ScrollView(this);editorScroll.setFillViewport(true);
         LinearLayout.LayoutParams ep=new LinearLayout.LayoutParams(-1,0,1);ep.setMargins(dp(12),0,dp(12),dp(14));
         main.addView(editorScroll,ep);
-        docInput=new EditText(this);docInput.setTextColor(INK);docInput.setTextSize(17);docInput.setGravity(Gravity.TOP|Gravity.START);
+        docInput=new DocZoomEditText(this);docInput.setTextColor(INK);docInput.setTextSize(docFontSp*docZoom);docInput.setGravity(Gravity.TOP|Gravity.START);
+        docInput.setZoomListener(factor -> setDocZoom(docZoom*factor));
         docInput.setHint("Comece a digitar seu documento…");
         docInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE|android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         docInput.setBackground(bg(Color.WHITE,EDGE,8));pad(docInput,20,21);
         docInput.setMinHeight(dp(480));docInput.setSingleLine(false);
         editorScroll.addView(docInput,new ScrollView.LayoutParams(-1,-1));
         if(previous!=null)docInput.setText(previous);
+        updateDocZoomLabel();
     }
+    private void setDocZoom(float target){
+        float next=Math.max(0.6f,Math.min(2.4f,target));
+        if(Math.abs(next-docZoom)<0.002f)return;
+        docZoom=next;
+        if(docInput!=null)docInput.setTextSize(docFontSp*docZoom);
+        updateDocZoomLabel();
+    }
+    private void updateDocZoomLabel(){if(docZoomLabel!=null)docZoomLabel.setText(Math.round(docZoom*100f)+"%");}
     private void styleSelection(String style){
         if(docInput==null)return;
         int a=Math.min(docInput.getSelectionStart(),docInput.getSelectionEnd());
@@ -183,7 +208,10 @@ public final class MainActivity extends Activity {
         for(Object span:docInput.getText().getSpans(Math.min(a,b),Math.max(a,b),Object.class))
             if(span instanceof StyleSpan||span instanceof UnderlineSpan)docInput.getText().removeSpan(span);
     }
-    private void resizeText(int delta){docInput.setTextSize(Math.max(12,Math.min(30,docInput.getTextSize()/getResources().getDisplayMetrics().scaledDensity+delta)));}
+    private void resizeText(int delta){
+        docFontSp=Math.max(12f,Math.min(30f,docFontSp+delta));
+        if(docInput!=null)docInput.setTextSize(docFontSp*docZoom);
+    }
     private void insertAtCursor(String text){if(docInput==null)return;int a=Math.max(0,docInput.getSelectionStart());docInput.getText().insert(a,text);}
     private void styleHeading(){
         if(docInput==null)return;
@@ -192,7 +220,7 @@ public final class MainActivity extends Activity {
         String text=docInput.getText().toString();
         if(a==b){a=text.lastIndexOf('\n',Math.max(0,a-1))+1;int end=text.indexOf('\n',b);b=end<0?text.length():end;}
         if(a==b){toast("Digite ou selecione uma linha para transformar em título");return;}
-        docInput.getText().setSpan(new AbsoluteSizeSpan(22,true),a,b,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        docInput.getText().setSpan(new RelativeSizeSpan(22f/docFontSp),a,b,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         docInput.getText().setSpan(new StyleSpan(Typeface.BOLD),a,b,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
     private void insertTable(){
@@ -273,8 +301,12 @@ public final class MainActivity extends Activity {
             int style=sp.getStyle();if((style&Typeface.BOLD)!=0)flags|=1;if((style&Typeface.ITALIC)!=0)flags|=2;
         }
         if(text.getSpans(i,i+1,UnderlineSpan.class).length>0)flags|=4;
-        AbsoluteSizeSpan[] sizes=text.getSpans(i,i+1,AbsoluteSizeSpan.class);
-        if(sizes.length>0)flags|=Math.min(72,sizes[sizes.length-1].getSize())<<8;
+        RelativeSizeSpan[] relative=text.getSpans(i,i+1,RelativeSizeSpan.class);
+        if(relative.length>0)flags|=Math.min(72,Math.max(1,Math.round(docFontSp*relative[relative.length-1].getSizeChange())))<<8;
+        else {
+            AbsoluteSizeSpan[] sizes=text.getSpans(i,i+1,AbsoluteSizeSpan.class);
+            if(sizes.length>0)flags|=Math.min(72,sizes[sizes.length-1].getSize())<<8;
+        }
         return flags;
     }
     private void renderSheet(){
@@ -376,6 +408,7 @@ public final class MainActivity extends Activity {
         action("Texto",actions,()->changePdfTool(PdfPageView.Tool.TEXT));
         action("Caneta",actions,()->changePdfTool(PdfPageView.Tool.PEN));
         action("Marca-texto",actions,()->changePdfTool(PdfPageView.Tool.HIGHLIGHT));
+        action("Índice / sumário",actions,this::showPdfIndex);
         action("↶ Traço",actions,()->{
             List<PdfPageView.Stroke> items=pdfStrokes.get(currentPage);
             if(items!=null&&!items.isEmpty()){items.remove(items.size()-1);if(pdfView!=null)pdfView.invalidate();}
@@ -388,9 +421,28 @@ public final class MainActivity extends Activity {
         action("◀",paging,()->showPage(Math.max(0,currentPage-1)));
         pageLabel=label("Nenhum PDF aberto",14,true,INK);
         pageLabel.setGravity(Gravity.CENTER);paging.addView(pageLabel,new LinearLayout.LayoutParams(0,dp(40),1));
-        action("▶",paging,()->showPage(currentPage+1));main.addView(paging);
-        ScrollView viewer=new ScrollView(this);main.addView(viewer,new LinearLayout.LayoutParams(-1,0,1));
-        pdfView=new PdfPageView(this);viewer.addView(pdfView,new ScrollView.LayoutParams(-1,-2));
+        action("▶",paging,()->showPage(currentPage+1));
+        action("Ir para…",paging,this::goToPdfPage);main.addView(paging);
+        LinearLayout zoomRow=buttons(true);
+        zoomRow.addView(label("Zoom PDF",13,true,GRAY));
+        action("−",zoomRow,()->setPdfZoom(pdfZoom-0.25f,true));
+        pdfZoomLabel=label("100%",15,true,BLUE);pad(pdfZoomLabel,10,0);zoomRow.addView(pdfZoomLabel);
+        action("+",zoomRow,()->setPdfZoom(pdfZoom+0.25f,true));
+        action("Ajustar",zoomRow,()->setPdfZoom(1f,true));
+        pdfHorizontal=new HorizontalScrollView(this);
+        pdfHorizontal.setFillViewport(true);
+        main.addView(pdfHorizontal,new LinearLayout.LayoutParams(-1,0,1));
+        pdfVertical=new ScrollView(this);
+        pdfVertical.setFillViewport(true);
+        pdfHorizontal.addView(pdfVertical,new HorizontalScrollView.LayoutParams(-1,-1));
+        pdfView=new PdfPageView(this);
+        pdfVertical.addView(pdfView,new ScrollView.LayoutParams(-1,-2));
+        pdfView.setOnZoomGesture(new PdfPageView.OnZoomGesture(){
+            @Override public void onScale(float factor){setPdfZoom(pdfZoom*factor,false);}
+            @Override public void onEnd(){if(pdfRenderer!=null)showPage(currentPage,false);}
+        });
+        pdfHorizontal.post(this::updatePdfZoomWidth);
+        updatePdfZoomLabel();
         pdfView.setOnPdfTap((x,y)->{
             if(pdfRenderer==null){toast("Abra um arquivo PDF");return;}
             EditText field=new EditText(this);field.setTextSize(17);field.setHint("Texto para inserir na página");
@@ -403,9 +455,94 @@ public final class MainActivity extends Activity {
                     pdfView.invalidate();
                 }).show();
         });
-        TextView help=label("Escolha Texto, Caneta ou Marca-texto. Ao salvar, o PDF é rasterizado; o texto original, links e assinaturas não são preservados.",12,false,GRAY);
+        TextView help=label("Zoom: botões + / − ou pinça. Índice: marcadores internos do PDF; se não houver, use Ir para… Anotações são exportadas como imagem, sem preservar textos, links ou índice.",12,false,GRAY);
         pad(help,15,10);main.addView(help);
         if(pdfRenderer!=null)showPage(currentPage);
+    }
+    private void updatePdfZoomLabel(){
+        if(pdfZoomLabel!=null)pdfZoomLabel.setText(Math.round(pdfZoom*100)+"%");
+    }
+    private void updatePdfZoomWidth(){
+        if(pdfHorizontal==null||pdfVertical==null)return;
+        int base=pdfHorizontal.getWidth();
+        if(base<=0)base=getResources().getDisplayMetrics().widthPixels;
+        int width=(int)(base*pdfZoom);
+        android.view.ViewGroup.LayoutParams params=pdfVertical.getLayoutParams();
+        if(params!=null && params.width!=width){
+            float hCenter=(pdfHorizontal.getScrollX()+base*0.5f)/Math.max(1f,params.width>0?params.width:base);
+            float vCenter=pdfView==null?0:(pdfVertical.getScrollY()+pdfVertical.getHeight()*0.5f)/Math.max(1f,pdfView.getHeight());
+            params.width=width;
+            pdfVertical.setLayoutParams(params);
+            pdfHorizontal.post(()->{
+                pdfHorizontal.scrollTo(Math.max(0,Math.round(hCenter*width-base*0.5f)),0);
+                if(pdfView!=null)pdfVertical.scrollTo(0,Math.max(0,Math.round(vCenter*pdfView.getHeight()-pdfVertical.getHeight()*0.5f)));
+            });
+        }
+    }
+    private void setPdfZoom(float target,boolean refreshBitmap){
+        float next=Math.max(0.75f,Math.min(3.5f,target));
+        if(Math.abs(next-pdfZoom)<0.002f)return;
+        pdfZoom=next;
+        updatePdfZoomLabel();
+        updatePdfZoomWidth();
+        if(refreshBitmap&&pdfRenderer!=null)showPage(currentPage,false);
+    }
+    private void goToPdfPage(){
+        if(pdfRenderer==null){toast("Abra um PDF primeiro");return;}
+        EditText input=new EditText(this);
+        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setText(String.valueOf(currentPage+1));
+        new AlertDialog.Builder(this).setTitle("Ir para página (1 a "+pdfRenderer.getPageCount()+")")
+            .setView(input).setNegativeButton("Cancelar",null)
+            .setPositiveButton("Ir",(d,w)->{
+                try {
+                    int page=Integer.parseInt(input.getText().toString());
+                    if(page<1||page>pdfRenderer.getPageCount())throw new IllegalArgumentException();
+                    showPage(page-1);
+                }catch(Exception ex){toast("Número de página inválido");}
+            }).show();
+    }
+    private void showPdfIndex(){
+        if(pdfRenderer==null){toast("Abra um PDF primeiro");return;}
+        if(pdfIndexLoading){toast("Carregando índice do PDF…");return;}
+        if(pdfBookmarks.isEmpty()){
+            new AlertDialog.Builder(this).setTitle("PDF sem sumário interno")
+                .setMessage("Este PDF não possui marcadores de índice (bookmarks). Você ainda pode navegar pelo número da página.")
+                .setNegativeButton("Fechar",null)
+                .setPositiveButton("Ir para página",(d,w)->goToPdfPage()).show();
+            return;
+        }
+        String[] items=new String[pdfBookmarks.size()];
+        for(int i=0;i<items.length;i++){
+            PdfOutlineReader.Bookmark bookmark=pdfBookmarks.get(i);
+            StringBuilder line=new StringBuilder();
+            for(int j=0;j<Math.min(8,bookmark.depth);j++)line.append("   ");
+            line.append(bookmark.depth>0?"↳ ":"§ ").append(bookmark.title);
+            if(bookmark.pageIndex>=0)line.append("  • p. ").append(bookmark.pageIndex+1);
+            items[i]=line.toString();
+        }
+        new AlertDialog.Builder(this).setTitle("Índice / sumário do PDF")
+            .setItems(items,(d,position)->{
+                int page=pdfBookmarks.get(position).pageIndex;
+                if(page>=0 && page<pdfRenderer.getPageCount())showPage(page);
+                else toast("Este título não possui uma página vinculada");
+            }).setNegativeButton("Fechar",null).show();
+    }
+    private void readPdfBookmarksAsync(Uri source){
+        pdfIndexLoading=true;
+        new Thread(()->{
+            List<PdfOutlineReader.Bookmark> read=Collections.emptyList();
+            try(InputStream stream=getContentResolver().openInputStream(source)){
+                if(stream!=null)read=PdfOutlineReader.read(stream);
+            }catch(Exception ex){android.util.Log.w("OfficeLivre", "Índice PDF indisponível",ex);}
+            final List<PdfOutlineReader.Bookmark> results=read;
+            runOnUiThread(()->{
+                if(source.equals(pdfSource)){
+                    pdfBookmarks.clear();pdfBookmarks.addAll(results);pdfIndexLoading=false;
+                }
+            });
+        },"pdf-index-reader").start();
     }
     private void changePdfTool(PdfPageView.Tool tool){
         if(pdfView==null)return;
@@ -413,17 +550,27 @@ public final class MainActivity extends Activity {
         toast(tool==PdfPageView.Tool.TEXT?"Toque no PDF para digitar texto":
             tool==PdfPageView.Tool.PEN?"Arraste o dedo para desenhar":"Arraste o dedo para destacar");
     }
-    private void showPage(int index){
+    private void showPage(int index){showPage(index,index!=currentPage);}
+    private void showPage(int index,boolean resetScroll){
         if(pdfRenderer==null || index<0||index>=pdfRenderer.getPageCount())return;
         currentPage=index;
         try(PdfRenderer.Page page=pdfRenderer.openPage(index)){
-            int width=Math.min(1200,Math.max(600,page.getWidth()*2));
-            int height=Math.max(1,(int)((double)page.getHeight()*width/page.getWidth()));
+            double aspect=(double)page.getHeight()/Math.max(1,page.getWidth());
+            int desired=(int)(page.getWidth()*2*Math.sqrt(pdfZoom));
+            // Evita OutOfMemoryError em documentos de dimensões extremas.
+            int maxWidth=Math.max(1,Math.min(2400,Math.min((int)(3500/Math.max(0.001,aspect)),
+                (int)Math.sqrt(7_000_000/Math.max(0.001,aspect)))));
+            int width=Math.max(1,Math.min(maxWidth,Math.max(600,desired)));
+            int height=Math.max(1,(int)(aspect*width));
             Bitmap bitmap=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);
             bitmap.eraseColor(Color.WHITE);
             page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
             pdfView.update(bitmap,pdfNotes.computeIfAbsent(index,k->new ArrayList<>()),pdfStrokes.computeIfAbsent(index,k->new ArrayList<>()));
             pageLabel.setText("Página "+(index+1)+" de "+pdfRenderer.getPageCount());
+            if(resetScroll){
+                if(pdfVertical!=null)pdfVertical.post(()->pdfVertical.scrollTo(0,0));
+                if(pdfHorizontal!=null)pdfHorizontal.post(()->pdfHorizontal.scrollTo(0,0));
+            }
         }catch(Exception ex){error("Não foi possível mostrar a página",ex);}
     }
     private void chooseFile(){
@@ -464,7 +611,9 @@ public final class MainActivity extends Activity {
             if(lower.endsWith(".pdf")||"application/pdf".equals(mime)){
                 closePdf();pdfSource=uri;pdfFd=getContentResolver().openFileDescriptor(uri,"r");
                 if(pdfFd==null)throw new IOException("Sem acesso ao PDF");
-                pdfRenderer=new PdfRenderer(pdfFd);currentPage=0;pdfNotes.clear();pdfStrokes.clear();renderPdf();
+                pdfRenderer=new PdfRenderer(pdfFd);currentPage=0;pdfZoom=1f;
+                pdfBookmarks.clear();pdfNotes.clear();pdfStrokes.clear();renderPdf();
+                readPdfBookmarksAsync(uri);
             }else if(lower.endsWith(".docx")||DOCX.equals(mime)){
                 try(InputStream in=getContentResolver().openInputStream(uri)){
                     OpenXml.WordDocument decoded=OpenXml.readDocx(in);renderDoc();
@@ -484,7 +633,7 @@ public final class MainActivity extends Activity {
                                     if(run.bold)editable.setSpan(new StyleSpan(Typeface.BOLD),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                                     if(run.italic)editable.setSpan(new StyleSpan(Typeface.ITALIC),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                                     if(run.underline)editable.setSpan(new UnderlineSpan(),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                                    if(run.sizePt>0)editable.setSpan(new AbsoluteSizeSpan(run.sizePt,true),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                                    if(run.sizePt>0)editable.setSpan(new RelativeSizeSpan(run.sizePt/docFontSp),start,end,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                                 }
                             }
                         }
@@ -606,6 +755,8 @@ public final class MainActivity extends Activity {
         try{if(pdfRenderer!=null)pdfRenderer.close();}catch(Exception ignored){}
         try{if(pdfFd!=null)pdfFd.close();}catch(Exception ignored){}
         pdfRenderer=null;pdfFd=null;
+        pdfSource=null;
+        pdfBookmarks.clear();pdfIndexLoading=false;
     }
     private void toast(String t){Toast.makeText(this,t,Toast.LENGTH_LONG).show();}
     private void error(String title,Exception e){

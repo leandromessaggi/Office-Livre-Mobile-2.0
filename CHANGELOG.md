@@ -1,3 +1,8 @@
+## 2.1.0
+- Zoom por pinça e botões nos editores de Word e PDF.
+- Navegação via bookmarks internos do PDF e comando Ir para página.
+- PDFBox para leitura estrutural de índices.
+
 # Histórico de versões
 
 ## 2.0.0 — evolução do projeto
