@@ -464,8 +464,7 @@ public final class MainActivity extends Activity {
     }
     private void updatePdfZoomWidth(){
         if(pdfHorizontal==null||pdfVertical==null)return;
-        int base=pdfHorizontal.getWidth();
-        if(base<=0)base=getResources().getDisplayMetrics().widthPixels;
+        final int base=pdfHorizontal.getWidth()>0 ? pdfHorizontal.getWidth() : getResources().getDisplayMetrics().widthPixels;
         int width=(int)(base*pdfZoom);
         android.view.ViewGroup.LayoutParams params=pdfVertical.getLayoutParams();
         if(params!=null && params.width!=width){
