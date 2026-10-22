@@ -32,6 +32,8 @@ public final class DocZoomEditText extends EditText {
     @Override public boolean onTouchEvent(MotionEvent event) {
         detector.onTouchEvent(event);
         int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN && getParent() != null)
+            getParent().requestDisallowInterceptTouchEvent(true);
         if (event.getPointerCount() > 1 || action == MotionEvent.ACTION_POINTER_DOWN ||
                 action == MotionEvent.ACTION_POINTER_UP || pinchInProgress) {
             if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);

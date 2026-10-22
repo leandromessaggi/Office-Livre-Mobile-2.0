@@ -35,11 +35,12 @@ public final class MainActivity extends Activity {
     private DocZoomEditText docInput;
     private EditText formulaInput;
     private float docZoom=1f, pdfZoom=1f, docFontSp=17f;
-    private TextView docZoomLabel,pdfZoomLabel;
-    private HorizontalScrollView pdfHorizontal;
-    private ScrollView pdfVertical;
+    private TextView docZoomLabel,pdfZoomLabel,pdfIndexButton;
     private final ArrayList<PdfOutlineReader.Bookmark> pdfBookmarks=new ArrayList<>();
+    private final HashMap<Integer,List<PdfOutlineReader.PageLink>> pdfLinks=new HashMap<>();
     private volatile boolean pdfIndexLoading=false;
+    private boolean pdfIndexRequested=false;
+    private String pdfIndexError=null;
     private WorkbookData book=new WorkbookData();
     private SheetData sheet=book.current();
     private String selectedCell="A1", filename="Novo documento";
@@ -156,8 +157,8 @@ public final class MainActivity extends Activity {
         action("Salvar DOCX",actions,()->saveAs("docx"));
         action("Salvar TXT",actions,()->saveAs("txt"));
         action("Exportar PDF",actions,()->saveAs("docpdf"));
-        LinearLayout zoomRow=buttons(true);
-        zoomRow.addView(label("Zoom",13,true,GRAY));
+        LinearLayout zoomRow=horizontal();pad(zoomRow,12,4);main.addView(zoomRow);
+        zoomRow.addView(label("Zoom texto",13,true,GRAY));
         action("−",zoomRow,()->setDocZoom(docZoom-0.2f));
         docZoomLabel=label("100%",15,true,BLUE);pad(docZoomLabel,10,0);zoomRow.addView(docZoomLabel);
         action("+",zoomRow,()->setDocZoom(docZoom+0.2f));
@@ -399,7 +400,7 @@ public final class MainActivity extends Activity {
     }
     private void renderPdf(){
         if(pdfView!=null)pdfView.release();
-        setup(Mode.PDF,"PDF","Leitura e anotações sobre páginas");
+        setup(Mode.PDF,"PDF","Leitura, zoom e links navegáveis");
         LinearLayout actions=buttons(true);
         action("Abrir PDF",actions,this::chooseFile);
         action("Salvar PDF anotado",actions,()->{
@@ -408,7 +409,6 @@ public final class MainActivity extends Activity {
         action("Texto",actions,()->changePdfTool(PdfPageView.Tool.TEXT));
         action("Caneta",actions,()->changePdfTool(PdfPageView.Tool.PEN));
         action("Marca-texto",actions,()->changePdfTool(PdfPageView.Tool.HIGHLIGHT));
-        action("Índice / sumário",actions,this::showPdfIndex);
         action("↶ Traço",actions,()->{
             List<PdfPageView.Stroke> items=pdfStrokes.get(currentPage);
             if(items!=null&&!items.isEmpty()){items.remove(items.size()-1);if(pdfView!=null)pdfView.invalidate();}
@@ -422,29 +422,38 @@ public final class MainActivity extends Activity {
         pageLabel=label("Nenhum PDF aberto",14,true,INK);
         pageLabel.setGravity(Gravity.CENTER);paging.addView(pageLabel,new LinearLayout.LayoutParams(0,dp(40),1));
         action("▶",paging,()->showPage(currentPage+1));
-        action("Ir para…",paging,this::goToPdfPage);main.addView(paging);
-        LinearLayout zoomRow=buttons(true);
+        main.addView(paging);
+        // Índice permanece visível: não fica escondido no toolbar rolável de anotações.
+        LinearLayout navigation=horizontal();pad(navigation,12,4);
+        pdfIndexButton=action("☰ Índice",navigation,this::showPdfIndex);
+        updatePdfIndexLabel();
+        action("Ir para página",navigation,this::goToPdfPage);
+        action("Página 1",navigation,()->showPage(0));
+        main.addView(navigation);
+        LinearLayout zoomRow=horizontal();pad(zoomRow,12,4);
         zoomRow.addView(label("Zoom PDF",13,true,GRAY));
         action("−",zoomRow,()->setPdfZoom(pdfZoom-0.25f,true));
-        pdfZoomLabel=label("100%",15,true,BLUE);pad(pdfZoomLabel,10,0);zoomRow.addView(pdfZoomLabel);
+        pdfZoomLabel=label("100%",15,true,BLUE);pad(pdfZoomLabel,8,0);zoomRow.addView(pdfZoomLabel);
         action("+",zoomRow,()->setPdfZoom(pdfZoom+0.25f,true));
         action("Ajustar",zoomRow,()->setPdfZoom(1f,true));
-        pdfHorizontal=new HorizontalScrollView(this);
-        pdfHorizontal.setFillViewport(true);
-        main.addView(pdfHorizontal,new LinearLayout.LayoutParams(-1,0,1));
-        pdfVertical=new ScrollView(this);
-        pdfVertical.setFillViewport(true);
-        pdfHorizontal.addView(pdfVertical,new HorizontalScrollView.LayoutParams(-1,-1));
+        main.addView(zoomRow);
         pdfView=new PdfPageView(this);
-        pdfVertical.addView(pdfView,new ScrollView.LayoutParams(-1,-2));
+        main.addView(pdfView,new LinearLayout.LayoutParams(-1,0,1));
+        pdfView.setZoom(pdfZoom);
         pdfView.setOnZoomGesture(new PdfPageView.OnZoomGesture(){
-            @Override public void onScale(float factor){setPdfZoom(pdfZoom*factor,false);}
+            @Override public void onScale(float factor,float focusX,float focusY){
+                setPdfZoom(pdfZoom*factor,false,focusX,focusY);
+            }
             @Override public void onEnd(){if(pdfRenderer!=null)showPage(currentPage,false);}
         });
-        pdfHorizontal.post(this::updatePdfZoomWidth);
         updatePdfZoomLabel();
         pdfView.setOnPdfTap((x,y)->{
             if(pdfRenderer==null){toast("Abra um arquivo PDF");return;}
+            int link=pdfView.hitPageLink(x,y);
+            if(link>=0 && link<pdfRenderer.getPageCount()){
+                showPage(link);
+                return;
+            }
             EditText field=new EditText(this);field.setTextSize(17);field.setHint("Texto para inserir na página");
             LinearLayout layout=vertical();pad(layout,18,8);layout.addView(field);
             new AlertDialog.Builder(this).setTitle("Adicionar texto ao PDF").setView(layout)
@@ -455,35 +464,27 @@ public final class MainActivity extends Activity {
                     pdfView.invalidate();
                 }).show();
         });
-        TextView help=label("Zoom: botões + / − ou pinça. Índice: marcadores internos do PDF; se não houver, use Ir para… Anotações são exportadas como imagem, sem preservar textos, links ou índice.",12,false,GRAY);
-        pad(help,15,10);main.addView(help);
-        if(pdfRenderer!=null)showPage(currentPage);
+        TextView help=label("Arraste para navegar; use dois dedos para ampliar. Links azuis e índice são clicáveis. Anotações exportadas como imagem não preservam links.",11,false,GRAY);
+        pad(help,12,6);main.addView(help);
+        if(pdfRenderer!=null)showPage(currentPage,false);
+    }
+    private void updatePdfIndexLabel(){
+        if(pdfIndexButton!=null)pdfIndexButton.setText(pdfBookmarks.isEmpty()?"☰ Índice":"☰ Índice ("+pdfBookmarks.size()+")");
     }
     private void updatePdfZoomLabel(){
         if(pdfZoomLabel!=null)pdfZoomLabel.setText(Math.round(pdfZoom*100)+"%");
     }
-    private void updatePdfZoomWidth(){
-        if(pdfHorizontal==null||pdfVertical==null)return;
-        final int base=pdfHorizontal.getWidth()>0 ? pdfHorizontal.getWidth() : getResources().getDisplayMetrics().widthPixels;
-        int width=(int)(base*pdfZoom);
-        android.view.ViewGroup.LayoutParams params=pdfVertical.getLayoutParams();
-        if(params!=null && params.width!=width){
-            float hCenter=(pdfHorizontal.getScrollX()+base*0.5f)/Math.max(1f,params.width>0?params.width:base);
-            float vCenter=pdfView==null?0:(pdfVertical.getScrollY()+pdfVertical.getHeight()*0.5f)/Math.max(1f,pdfView.getHeight());
-            params.width=width;
-            pdfVertical.setLayoutParams(params);
-            pdfHorizontal.post(()->{
-                pdfHorizontal.scrollTo(Math.max(0,Math.round(hCenter*width-base*0.5f)),0);
-                if(pdfView!=null)pdfVertical.scrollTo(0,Math.max(0,Math.round(vCenter*pdfView.getHeight()-pdfVertical.getHeight()*0.5f)));
-            });
-        }
-    }
     private void setPdfZoom(float target,boolean refreshBitmap){
+        float focusX=pdfView==null?0:pdfView.getWidth()*0.5f;
+        float focusY=pdfView==null?0:pdfView.getHeight()*0.5f;
+        setPdfZoom(target,refreshBitmap,focusX,focusY);
+    }
+    private void setPdfZoom(float target,boolean refreshBitmap,float focusX,float focusY){
         float next=Math.max(0.75f,Math.min(3.5f,target));
         if(Math.abs(next-pdfZoom)<0.002f)return;
         pdfZoom=next;
+        if(pdfView!=null)pdfView.setZoom(pdfZoom,focusX,focusY);
         updatePdfZoomLabel();
-        updatePdfZoomWidth();
         if(refreshBitmap&&pdfRenderer!=null)showPage(currentPage,false);
     }
     private void goToPdfPage(){
@@ -504,41 +505,59 @@ public final class MainActivity extends Activity {
     }
     private void showPdfIndex(){
         if(pdfRenderer==null){toast("Abra um PDF primeiro");return;}
-        if(pdfIndexLoading){toast("Carregando índice do PDF…");return;}
+        if(pdfIndexLoading){
+            pdfIndexRequested=true;
+            toast("Lendo marcadores e links do PDF. O índice abrirá automaticamente.");
+            return;
+        }
         if(pdfBookmarks.isEmpty()){
-            new AlertDialog.Builder(this).setTitle("PDF sem sumário interno")
-                .setMessage("Este PDF não possui marcadores de índice (bookmarks). Você ainda pode navegar pelo número da página.")
-                .setNegativeButton("Fechar",null)
+            String text=pdfIndexError!=null
+                ? "Não foi possível ler o sumário: "+pdfIndexError+". Ainda é possível navegar pelo número da página."
+                : "Este PDF não possui marcadores internos. Você ainda pode navegar pelo número da página.";
+            new AlertDialog.Builder(this).setTitle("Índice indisponível")
+                .setMessage(text).setNegativeButton("Fechar",null)
                 .setPositiveButton("Ir para página",(d,w)->goToPdfPage()).show();
             return;
         }
         String[] items=new String[pdfBookmarks.size()];
         for(int i=0;i<items.length;i++){
-            PdfOutlineReader.Bookmark bookmark=pdfBookmarks.get(i);
+            PdfOutlineReader.Bookmark mark=pdfBookmarks.get(i);
             StringBuilder line=new StringBuilder();
-            for(int j=0;j<Math.min(8,bookmark.depth);j++)line.append("   ");
-            line.append(bookmark.depth>0?"↳ ":"§ ").append(bookmark.title);
-            if(bookmark.pageIndex>=0)line.append("  • p. ").append(bookmark.pageIndex+1);
+            for(int j=0;j<Math.min(6,mark.depth);j++)line.append("   ");
+            line.append(mark.depth>0?"↳ ":"§ ").append(mark.title);
+            if(mark.pageIndex>=0)line.append("  • p. ").append(mark.pageIndex+1);
             items[i]=line.toString();
         }
-        new AlertDialog.Builder(this).setTitle("Índice / sumário do PDF")
+        new AlertDialog.Builder(this).setTitle("Índice do PDF ("+pdfBookmarks.size()+" itens)")
             .setItems(items,(d,position)->{
-                int page=pdfBookmarks.get(position).pageIndex;
-                if(page>=0 && page<pdfRenderer.getPageCount())showPage(page);
-                else toast("Este título não possui uma página vinculada");
+                int target=pdfBookmarks.get(position).pageIndex;
+                if(target>=0&&target<pdfRenderer.getPageCount())showPage(target);
+                else toast("Marcador sem página associada");
             }).setNegativeButton("Fechar",null).show();
     }
     private void readPdfBookmarksAsync(Uri source){
-        pdfIndexLoading=true;
+        pdfIndexLoading=true;pdfIndexRequested=false;pdfIndexError=null;
         new Thread(()->{
-            List<PdfOutlineReader.Bookmark> read=Collections.emptyList();
+            PdfOutlineReader.Result result=null;
+            String error=null;
             try(InputStream stream=getContentResolver().openInputStream(source)){
-                if(stream!=null)read=PdfOutlineReader.read(stream);
-            }catch(Exception ex){android.util.Log.w("OfficeLivre", "Índice PDF indisponível",ex);}
-            final List<PdfOutlineReader.Bookmark> results=read;
+                if(stream!=null)result=PdfOutlineReader.read(stream);
+                else error="Arquivo indisponível";
+            }catch(Exception ex){
+                error=ex.getMessage()==null?ex.getClass().getSimpleName():ex.getMessage();
+                android.util.Log.e("OfficeLivre", "Falha ao extrair os marcadores do PDF",ex);
+            }
+            final PdfOutlineReader.Result parsed=result;
+            final String issue=error;
             runOnUiThread(()->{
                 if(source.equals(pdfSource)){
-                    pdfBookmarks.clear();pdfBookmarks.addAll(results);pdfIndexLoading=false;
+                    pdfBookmarks.clear();pdfLinks.clear();
+                    if(parsed!=null){pdfBookmarks.addAll(parsed.bookmarks);pdfLinks.putAll(parsed.links);}
+                    pdfIndexError=issue;
+                    pdfIndexLoading=false;
+                    updatePdfIndexLabel();
+                    if(pdfView!=null)pdfView.setLinks(pdfLinks.get(currentPage));
+                    if(pdfIndexRequested){pdfIndexRequested=false;showPdfIndex();}
                 }
             });
         },"pdf-index-reader").start();
@@ -565,11 +584,9 @@ public final class MainActivity extends Activity {
             bitmap.eraseColor(Color.WHITE);
             page.render(bitmap,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
             pdfView.update(bitmap,pdfNotes.computeIfAbsent(index,k->new ArrayList<>()),pdfStrokes.computeIfAbsent(index,k->new ArrayList<>()));
+            pdfView.setLinks(pdfLinks.get(index));
+            if(resetScroll)pdfView.resetPan();
             pageLabel.setText("Página "+(index+1)+" de "+pdfRenderer.getPageCount());
-            if(resetScroll){
-                if(pdfVertical!=null)pdfVertical.post(()->pdfVertical.scrollTo(0,0));
-                if(pdfHorizontal!=null)pdfHorizontal.post(()->pdfHorizontal.scrollTo(0,0));
-            }
         }catch(Exception ex){error("Não foi possível mostrar a página",ex);}
     }
     private void chooseFile(){
@@ -611,7 +628,7 @@ public final class MainActivity extends Activity {
                 closePdf();pdfSource=uri;pdfFd=getContentResolver().openFileDescriptor(uri,"r");
                 if(pdfFd==null)throw new IOException("Sem acesso ao PDF");
                 pdfRenderer=new PdfRenderer(pdfFd);currentPage=0;pdfZoom=1f;
-                pdfBookmarks.clear();pdfNotes.clear();pdfStrokes.clear();renderPdf();
+                pdfBookmarks.clear();pdfLinks.clear();pdfNotes.clear();pdfStrokes.clear();renderPdf();
                 readPdfBookmarksAsync(uri);
             }else if(lower.endsWith(".docx")||DOCX.equals(mime)){
                 try(InputStream in=getContentResolver().openInputStream(uri)){
@@ -755,7 +772,7 @@ public final class MainActivity extends Activity {
         try{if(pdfFd!=null)pdfFd.close();}catch(Exception ignored){}
         pdfRenderer=null;pdfFd=null;
         pdfSource=null;
-        pdfBookmarks.clear();pdfIndexLoading=false;
+        pdfBookmarks.clear();pdfLinks.clear();pdfIndexError=null;pdfIndexLoading=false;pdfIndexRequested=false;
     }
     private void toast(String t){Toast.makeText(this,t,Toast.LENGTH_LONG).show();}
     private void error(String title,Exception e){

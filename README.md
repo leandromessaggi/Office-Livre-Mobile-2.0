@@ -1,88 +1,93 @@
-# Office Livre Mobile 2.0 — Android offline
+# Office Livre Mobile 2.2 — Zoom e índice de PDFs
 
-Aplicativo de escritório Android, desenvolvido em **Java 17 + Android SDK nativo**, sem serviços pagos, contas, internet, anúncios ou permissões irrestritas de arquivos. Inclui editor básico de documentos, editor de planilhas e anotações sobre PDFs.
+Aplicativo Android nativo (Java 17, Android API 26+), com editor básico de DOCX/TXT, planilhas XLSX/CSV e leitura/anotação de PDFs. O código desta versão acrescenta zoom nos documentos e PDFs, além de leitura de marcadores (bookmarks) de PDFs.
 
-**Estado da entrega:** código-fonte + testes + modelos DOCX/XLSX + automação para gerar um `app-debug.apk` pelo GitHub Actions. **O APK não está incluído e a interface Android não foi compilada ou executada neste ambiente**, porque não há Android SDK/Gradle instalados nem acesso de rede para baixá-los. Não é um substituto completo do Microsoft Office/Acrobat.
+> **Estado:** o código passou pelos testes Java do núcleo e por verificação sintática dos novos arquivos Android. **O APK 2.1 ainda precisa ser compilado pelo GitHub Actions e testado no telefone**. Não confundir com o APK 2.0 já produzido anteriormente.
 
-## Evolução 2.0
+## Novidades 2.1
 
-| Área | Recursos desta versão | Limitações relevantes |
-|---|---|---|
-| Word / DOCX | Escrever e formatar negrito, itálico e sublinhado; **títulos com tamanho destacado**; **inserir e editar tabelas simples**; **localizar e substituir**; TXT; exportar PDF básico | O conteúdo das tabelas é mostrado no editor Android como linhas com tabulações, mas salvo em DOCX como tabelas reais `<w:tbl>`. Não preserva imagens, cabeçalhos, rodapés, complexidade de tabelas mescladas, estilos avançados, layouts nem comentários. Exportação para PDF só usa texto sem estilos avançados. |
-| Excel / XLSX | **Múltiplas abas (até 32)**, criar, renomear, selecionar e excluir abas; células, fórmulas, importação e exportação XLSX; exportação CSV da aba ativa; importação CSV separada por vírgula ou ponto e vírgula | Estilos, gráficos, macros, imagens, proteção, validações, filtros, células mescladas, tabelas dinâmicas e comentários **não são preservados**. O parser suporta só subconjunto de fórmulas e não referências entre abas. Fórmulas incompatíveis mostram `#ERRO`. Nunca sobrescreva um XLSX complexo. |
-| Fórmulas | `SOMA/SUM`, `MÉDIA/MEDIA/AVG/AVERAGE`, `MIN`, `MAX`, `CONTAR/COUNT`, **`SE/IF`, `ARRED/ROUND`, `POTENCIA/POWER`, `RAIZ/SQRT`, `ABS`, `E/AND`, `OU/OR`**, operadores aritméticos, `^`, `%`, `=`, `<`, `>`, `>=`, `<=`, `<>`, referências A1 e intervalos | Argumentos separados por `;` ou `,`; números decimais dentro das fórmulas usam ponto (`2.5`); valores simples digitados em células aceitam vírgula (`12,5`) e são convertidos em números XLSX. Intervalos limitados a 10.000 células. Fórmulas diferentes das implementadas ou referências de outras abas não são avaliadas. |
-| PDF | Abrir e navegar páginas, **inserir texto, desenhar com caneta, marcar com marca-texto**, desfazer últimos textos ou traços da página, salvar cópia PDF | **O documento é rasterizado ao exportar.** Isso pode remover pesquisa/seleção de texto, links, formulários, camadas, assinaturas e acessibilidade; não altera texto original. Não serve para tarjas/redação segura. PDF com senha não suportado. |
+### Documentos Word / DOCX
 
-### O que mudou comparado à versão 1.0
+- Botões de visualização `−`, `+` e `100%`.
+- Gesto de pinça com dois dedos dentro do editor.
+- Zoom de **60% a 240%**, sem inserir essa ampliação nas propriedades do DOCX exportado.
+- Títulos e tamanhos de fonte importados são representados proporcionalmente ao tamanho-base para acompanhar o zoom.
+- `A+` e `A−` continuam sendo **tamanho-base da fonte do documento**, não o zoom. O tamanho-base pode influenciar os tamanhos exportados.
+- Limitação: o editor ainda usa texto refluído; **não reproduz com fidelidade a paginação/imagens/layout avançado do Word**.
 
-- Excel não descarta todas as abas após a primeira: suporta importação/exportação de vários `xl/worksheets/sheetN.xml` e relacionamentos `workbook.xml.rels`.
-- Formatação de títulos DOCX utiliza `w:sz`; tabelas simples utilizam `w:tbl`, `w:tr` e `w:tc`.
-- Fórmulas condicionais possuem **avaliação preguiçosa dos ramos** (`=SE(0;A1;42)` não avalia o ramo falso). Exportação OOXML troca nomes portugueses comuns por equivalentes internacionais.
-- Anotações de caneta e marca-texto usam pontos normalizados e são aplicadas à cópia exportada de todas as páginas.
-- Exemplos em `samples/` permitem testar a edição e os formatos sem criar arquivos do zero.
+### PDF
 
-## Gerar APK usando GitHub (inclusive pelo celular)
+- Botões `−`, `+`, `Ajustar` e ampliação de **75% a 350%**.
+- Gesto de pinça sobre a página e rolagem vertical e horizontal para inspecionar a página ampliada.
+- Controle `Índice / sumário` que lê os **bookmarks (outline) existentes no PDF**, incluindo subníveis, e abre a página vinculada.
+- Controle `Ir para…` para informar o número da página — útil também em PDFs sem bookmarks.
+- O zoom preserva as posições proporcionais das anotações. Em zoom por pinça, um traço iniciado pelo primeiro dedo é cancelado se o segundo dedo entrar.
+- Os bookmarks são lidos em uma thread separada para não travar a interface.
 
-1. Crie um **repositório privado** no GitHub.
-2. Descompacte o projeto; publique o **conteúdo da pasta** no repositório, mantendo `.github/workflows/android-apk.yml` (pasta oculta).
-3. Abra **Actions → Gerar APK Android → Run workflow**. Também é possível disparar por push na branch `main` ou `master`.
-4. O fluxo instala Java 17, executa os testes de núcleo, instala Android SDK 35 e Gradle 8.11.1, compila a aplicação e publica o artefato `OfficeLivre-Android-APK`.
-5. Após o fluxo concluir com sucesso, baixe o artefato e extraia `app-debug.apk`. Transfira ao Android e autorize instalação por aquela origem se necessário.
+**Importante:** índice navegável significa *bookmarks internos*, não a leitura automática de sumários impressos no conteúdo. Alguns PDFs têm um sumário desenhado nas páginas, mas nenhum bookmark. Nesse caso, a lista de índice ficará vazia e ainda será possível navegar por número de página. PDFs criptografados/complexos podem não permitir extração de marcadores.
 
-**Observação:** o fluxo de CI está configurado, mas não foi executado nesta entrega. APK debug é para testes; não publique em loja sem assinatura release própria, política de privacidade e testes em aparelhos reais.
+A exportação atual de anotações **rasteriza todo o PDF**. Ela **não preserva bookmarks, links, assinaturas, formulários, texto selecionável** ou garantias de redação segura. Mantenha o original.
 
-### Android Studio
+### Biblioteca acrescentada
 
-Abra esta pasta no Android Studio com SDK Platform 35 e JDK 17. Sincronize Gradle e selecione **Build > Build APK(s)**. O resultado, se compilado com sucesso, ficará em `app/build/outputs/apk/debug/app-debug.apk`.
+Leitura dos bookmarks por [PdfBox-Android 2.0.27.0](https://github.com/TomRoush/PdfBox-Android), licença **Apache 2.0**. O Android `PdfRenderer` continua responsável pela renderização de páginas. O aplicativo funciona offline, mas a **compilação** exige que o Gradle baixe a dependência do Maven Central. A biblioteca é inicializada via `PDFBoxResourceLoader.init()`.
 
-Requisitos da aplicação: `minSdk 26` (Android 8), `targetSdk 35`, Java 17, Android Gradle Plugin 8.9.2, Gradle 8.11.1. O projeto não depende de bibliotecas externas em tempo de execução.
+## Testes locais sem Android
 
-## Testar sem Android
+Na raiz do projeto, em ambiente com JDK 17+:
 
-```bash
-./test-core.sh
+```sh
+bash test-core.sh
 ```
 
-Usa `javac` e `java` JDK 17+; realiza os testes de núcleo antigos e **20 verificações novas** cobrindo fórmulas, três abas XLSX, renomeação/remoção de aba, rejeição de nomes inválidos, tabelas DOCX e títulos; gera modelos e valida **sintaxe** dos arquivos Java Android (isso **não** substitui a compilação real Android).
+Testa o núcleo de documentos/planilhas e o parse sintático dos arquivos `MainActivity.java`, `PdfPageView.java`, `DocZoomEditText.java` e `PdfOutlineReader.java`. **Isso não substitui compilar com Android SDK e abrir o aplicativo no dispositivo.**
 
-Na preparação da versão 2, os arquivos produzidos foram adicionalmente abertos com `openpyxl` e `python-docx`, e arquivos criados por ambas as bibliotecas foram lidos pelo parser Java. **Validação em dispositivo ainda pendente**.
+## Atualizar o repositório GitHub usando Termux
 
-## Estrutura
+1. Baixe `OfficeLivreMobile-v2.1-projeto.zip` para a pasta **Downloads** no Android.
+2. Se ainda não autorizou arquivos no Termux, rode `termux-setup-storage`.
+3. Execute os comandos:
 
-```text
-app/src/main/java/com/officelivre/mobile/
-  MainActivity.java              UI Android, seleção de arquivos, documentos/planilhas e PDF
-  PdfPageView.java               Páginas PDF e desenho de anotações
-  core/SheetData.java            Grade de células e CSV
-  core/WorkbookData.java         Livro com múltiplas abas
-  core/FormulaEngine.java        Expressões e funções de planilha
-  core/OpenXml.java              Importação/exportação DOCX/XLSX
-samples/
-  Exemplo_Documento_Tabela.docx
-  Exemplo_Multiplas_Abas.xlsx
-tests/CoreTests.java            Testes da versão original
-tests/V2Tests.java              Testes adicionais da versão 2
-.github/workflows/android-apk.yml
+```sh
+cd ~/Office-Livre-Mobile-2.0
+git pull --ff-only origin main
+mkdir -p ~/office-v21-temp
+unzip -o ~/storage/downloads/OfficeLivreMobile-v2.1-projeto.zip -d ~/office-v21-temp
+cp -a ~/office-v21-temp/OfficeLivreMobile-v2.1/. .
+git add -A
+git commit -m "Office Livre 2.1: zoom e índice PDF"
+git push origin main
 ```
 
-## Privacidade e segurança
+Se o GitHub não reconhecer os comandos, confira `gh auth status`. **Não execute um `git push --force`**. O fluxo `.github/workflows/android-apk.yml` já está ajustado para `android-actions/setup-android@v4` com `packages: 'platform-tools'`, corrigindo a falha anterior causada pelo pacote Android `tools` obsoleto.
 
-Utiliza Storage Access Framework (`ACTION_OPEN_DOCUMENT` e `ACTION_CREATE_DOCUMENT`) para escolher arquivos, sem permissão de acesso a todo o armazenamento nem à internet. Nenhum arquivo é transmitido pelo aplicativo. A importação restringe o tamanho descompactado de ZIP e bloqueia DTD/entidades XML. **Salve uma nova cópia dos arquivos importantes:** a conversão de formatos complexos é destrutiva. Para PDFs contendo informações sigilosas, não use a camada de anotação para censurar informações.
+Depois do push, abra [Actions do repositório](https://github.com/leandromessaggi/Office-Livre-Mobile-2.0/actions), aguarde a nova execução **Gerar APK Android** com sucesso e baixe o ZIP `OfficeLivre-Android-APK` em **Artifacts**. Extraia `app-debug.apk`.
 
-## Documentação técnica
+Se o Android rejeitar a atualização por assinatura diferente, é provável que o GitHub Actions tenha gerado uma nova chave **debug**. Antes de desinstalar a versão anterior, exporte/salve todos os documentos importantes; desinstalar um app apaga seus dados internos. A edição release assinada com chave estável não foi configurada.
 
-- [Microsoft Open XML — WordprocessingML](https://learn.microsoft.com/en-us/office/open-xml/word/how-to-create-a-word-processing-document-by-providing-a-file-name)
-- [Microsoft Open XML — SpreadsheetML](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/structure-of-a-spreadsheetml-document)
-- [Android Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files)
-- [Android PdfRenderer](https://developer.android.com/reference/android/graphics/pdf/PdfRenderer)
-- [Android PdfDocument](https://developer.android.com/reference/android/graphics/pdf/PdfDocument)
+## Verificações recomendadas no celular
 
-A implementação foi escrita para este projeto usando essas especificações públicas; não contém código copiado de bibliotecas comerciais nem distribui dependências licenciadas de terceiros.
+1. Criar texto, aplicar título e verificar zoom de 100% → 160% → 100%; salvar em DOCX e reabrir (zoom não deve mudar os tamanhos gravados).
+2. Abrir PDF com marcadores e navegar por `Índice / sumário` (inclusive subcapítulos).
+3. Abrir PDF *sem* bookmarks e confirmar a mensagem e a opção `Ir para…`.
+4. Abrir PDF, marcar com caneta, ampliar, reduzir e verificar se as anotações seguem a posição certa.
+5. Testar zoom com dois dedos; trocar de página e retornar.
+6. Testar importação/exportação de XLSX, que não sofreu mudanças funcionais na 2.1.
+
+## Compatibilidade / limitações conhecidas
+
+- Word: formatação e tabelas simples; sem paginação WYSIWYG, imagens ou tabelas complexas preservadas.
+- Excel: até 32 abas, fórmulas básicas, CSV e XLSX; sem gráficos, macros ou preservação de estilos avançados.
+- PDF: navegadores de bookmarks e página, anotações rasterizadas; sem OCR, edição do texto subjacente nem navegação automática pelo índice impresso na página.
+- O pacote 2.1 **não inclui APK pré-compilado**.
 
 
-## Atualização 2.1 — Zoom e sumário
-
-- Editor DOCX: zoom de 60% a 240%, por botões ou pinça. O zoom não altera o tamanho de fonte salvo.
-- PDF: zoom de 75% a 350%, com botões ou pinça, e rolagem bidirecional.
-- PDF: botão **Índice / sumário** para navegar pelos bookmarks internos do arquivo; PDFs sem bookmarks permitem navegar pelo número da página.
-- O zoom e as anotações são recursos de visualização; ao exportar o PDF anotado, seu conteúdo é rasterizado.
+## Correções 2.2: zoom e links
+- No PDF, o botão Índice fica visível e mostra quantos marcadores foram encontrados.
+- Os links internos da primeira página (sumário) e o link “Voltar ao índice”
+  navegam diretamente no PDF original, sem abrir o diálogo de anotação.
+- Use pinça para ampliar de 75% a 350%, +/− para controlar, e arraste
+  a página livremente (horizontal e vertical).
+- Word tem botões permanentes de zoom 60%-240% e pinça com dois dedos.
+- Para testar: abra um PDF com links/marcadores e confirme se a faixa “Índice”
+  mostra a quantidade e se os links respondem.
