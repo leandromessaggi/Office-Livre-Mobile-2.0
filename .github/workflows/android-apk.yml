@@ -2,7 +2,7 @@ name: Gerar APK Android
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master, "feature/**" ]
+    branches: [ main, master, "feature/**", "fix/**" ]
 
 jobs:
   build:
